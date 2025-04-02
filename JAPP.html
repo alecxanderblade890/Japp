@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapbox Route Intersection</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #reset-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: white;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 1000;
+        }
+        /* Ensure #map is properly positioned */
+        #map {
+            width: 100%;
+            height: 700px;
+            position: relative;
+            z-index: 900;
+        }
+        #location-container {
+            width: 40%;
+            height: 30%;
+            position: absolute;
+            bottom: 10px; /* Move it to the bottom */
+            left: 10px; /* Align it to the left */
+            background-color: white;
+            padding: 25px;
+            border-radius: 5px;
+            box-shadow: 0 10px 16px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="location-container">
+        <h4 id="available-routes">JAPP!</h4>
+    </div>
+    <button id="reset-btn">Reset Markers</button>
+    <script>
+
+        const predefinedRoutes = [
+            {
+                route_name: "Tagbak City Proper",
+                waypoints: [
+                    [122.58345158564565, 10.770784491416348],
+                    [122.55568175163525, 10.727473152847779],
+                    [122.55680454358944, 10.724103994084423],
+                    [122.56683584531471, 10.708513270942783],
+                    [122.56226426349923, 10.700820310151581],
+                    [122.56171710818704, 10.697400197964754],
+                    [122.56447978010941, 10.697620917697897],
+                    [122.56477754332002, 10.69615275204444],
+                    [122.564698, 10.695493],
+                    [122.564693, 10.694876],
+                    [122.564698, 10.693410],
+                    [122.563643, 10.692072],
+                    [122.566160, 10.691785],
+                    [122.567869, 10.691945],
+                    [122.568238, 10.701597],
+                    [122.561877, 10.716923],
+                    [122.563318, 10.719084],
+                    [122.557250, 10.725369],
+                    [122.583478, 10.770869]
+                ],
+                color: 'blue'
+            },
+
+            {
+                route_name: "Molo - Iloilo City Proper via Baluarte",
+                waypoints: [
+                    [122.548775, 10.699123],
+                    [122.543564, 10.697440],
+                    [122.543936, 10.696582],
+                    [122.547373, 10.692692],
+                    [122.552865, 10.692316],
+                    [122.564595, 10.695058],
+                    [122.568906, 10.696363],
+                    [122.569000, 10.692127]
+                ],
+                color: 'gray'
+            },
+            {
+                route_name: "Another Route Example",
+                waypoints: [
+                    [122.548775, 10.699123],
+                    [122.543564, 10.697440],
+                    [122.543936, 10.696582],
+                    [122.547373, 10.692692],
+                    [122.552865, 10.692316],
+                    [122.564595, 10.695058],
+                    [122.568906, 10.696363],
+                    [122.569000, 10.692127]
+                ],
+                color: 'gray'
+            }
+        ];
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYmxhZGU4OTAiLCJhIjoiY204czFwYjNjMHF4NjJtb21sYmFuYzhtbSJ9.tv4g_uT4Rqx0Lm4uzKBcog';
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center:  predefinedRoutes[1].waypoints[predefinedRoutes[1].waypoints.length - 1],
+            zoom: 14
+        });
+
+        let startMarker, endMarker;
+        let startCoords, endCoords;
+        let proximityThreshold = 0.050; // Distance threshold in kilometers
+        let predefinedRouteGeometry = [];// Store all route geometries
+
+        function getPredefinedRoute() {
+            predefinedRoutes.forEach((route, index) => {
+                const coordinates = route.waypoints.map(coord => coord.join(",")).join(";");
+                const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`;
+
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        const routeGeometry = data.routes[0].geometry;
+                        predefinedRouteGeometry.push(routeGeometry); // Store the geometry
+
+                        const sourceId = `predefined-route-${index}`;
+                        const layerId = `predefined-route-${index}`;
+
+                        if (map.getSource(sourceId)) map.removeSource(sourceId);
+                        map.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', geometry: routeGeometry } });
+
+                        if (map.getLayer(layerId)) map.removeLayer(layerId);
+                        map.addLayer({
+                            id: layerId,
+                            type: 'line',
+                            source: sourceId,
+                            layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
+                            paint: { 'line-color': route.color, 'line-width': 4 }
+                        });
+                    })
+                    .catch(error => console.error(`Error fetching route ${index}:`, error));
+            });
+        }
+
+        function getUserRoute() {
+            if (!startCoords || !endCoords) {
+                console.log("Start or end coordinates are missing."); // Debugging line
+                return; // Exit if either coordinate is missing
+            }
+            const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${startCoords.join(',')};${endCoords.join(',')}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    const route = data.routes[0].geometry;
+
+                    // Check if 'user-route' layer exists and remove it
+                    if (map.getLayer('user-route')) {
+                        map.removeLayer('user-route');
+                    }
+
+                    // Check if 'user-route' source exists and remove it
+                    if (map.getSource('user-route')) {
+                        map.removeSource('user-route');
+                    }
+
+                    // Add new source and layer
+                    map.addSource('user-route', { type: 'geojson', data: { type: 'Feature', geometry: route } });
+
+                    map.addLayer({
+                        id: 'user-route', 
+                        type: 'line', 
+                        source: 'user-route',
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: { 'line-color': 'red', 'line-width': 4 }
+                    });
+
+                    let startRoute = checkIntersection(startCoords);
+                    let endRoute = checkIntersection(endCoords);
+                
+                    if ((startRoute && endRoute) && (startRoute == endRoute)) {
+                        document.getElementById('available-routes').innerHTML = `Available routes to take: <br> ${startRoute}`;
+                        showRoute(predefinedRoutes.findIndex(route => route.route_name === startRoute));
+                    } else if (startRoute) {
+                        document.getElementById('available-routes').innerHTML = `No available routes found`;
+                        // alert(`Start point is near or intersects the predefined route: ${startRoute}`);
+                    } else if (endRoute) {
+                        document.getElementById('available-routes').innerHTML = `No available routes found`;
+                        // alert(`End point is near or intersects the predefined route: ${endRoute}`);
+                    }
+                })
+                .catch(error => console.error('Error fetching user route:', error));
+
+        }
+
+        function checkIntersection(point) {
+            if (!predefinedRouteGeometry || predefinedRouteGeometry.length === 0) return null;
+
+            let pt = turf.point(point);
+
+            for (let i = 0; i < predefinedRouteGeometry.length; i++) {
+                let line = turf.lineString(predefinedRouteGeometry[i].coordinates);
+                let distance = turf.pointToLineDistance(pt, line, { units: 'kilometers' });
+
+                if (distance < proximityThreshold) {
+                    return predefinedRoutes[i].route_name; // Return the name of the route the point intersects with
+                }
+            }
+
+            return null; // No intersection found
+        }
+
+        function showRoute(index) {
+            const layerId = `predefined-route-${index}`;
+            if (map.getLayer(layerId)) {
+                map.setLayoutProperty(layerId, 'visibility', 'visible');
+            }
+        }
+
+        function hideRoute(index) {
+            const layerId = `predefined-route-${index}`;
+            if (map.getLayer(layerId)) {
+                map.setLayoutProperty(layerId, 'visibility', 'none');
+            }
+        }
+
+        function resetMarkers() {
+            if (startMarker) startMarker.remove();
+            if (endMarker) endMarker.remove();
+            if (map.getLayer('user-route')) map.removeLayer('user-route');
+            if (map.getSource('user-route')) map.removeSource('user-route');
+            startMarker = endMarker = null;
+            startCoords = endCoords = null;
+            document.getElementById('available-routes').innerHTML = `JAPP!`;
+            clearPredefindRoutes();
+        }
+
+        function clearPredefindRoutes()
+        {
+            predefinedRoutes.forEach((route, index) => {
+                hideRoute(index);
+            });
+        }
+
+        map.on('click', (e) => {
+            if (!startMarker) {
+                startCoords = [e.lngLat.lng, e.lngLat.lat]; // Set initial start coordinates
+                startMarker = new mapboxgl.Marker({ color: "green", draggable: true }).setLngLat(startCoords).addTo(map);
+
+                // Attach the dragend event for startMarker after it's created
+                startMarker.on('dragend', () => {
+                    startCoords = [startMarker.getLngLat().lng, startMarker.getLngLat().lat];  // Update start coordinates
+                    console.log("Start marker dragged to:", startCoords); // Debugging line
+                    clearPredefindRoutes()
+                    getUserRoute();  // Call getUserRoute() after dragging ends
+                });
+
+            } else if (!endMarker) {
+                endCoords = [e.lngLat.lng, e.lngLat.lat]; // Set initial end coordinates
+                endMarker = new mapboxgl.Marker({ color: "red", draggable: true }).setLngLat(endCoords).addTo(map);
+
+                // Attach the dragend event for endMarker after it's created
+                endMarker.on('dragend', () => {
+                    endCoords = [endMarker.getLngLat().lng, endMarker.getLngLat().lat];  // Update end coordinates
+                    console.log("End marker dragged to:", endCoords); // Debugging line
+                    clearPredefindRoutes();
+                    getUserRoute();  // Call getUserRoute() after dragging ends
+                });
+                getUserRoute();
+            }
+        });
+
+
+
+//=====================================DEBUGGING========================================
+
+        //GetCoordinates function to copy coordinates to clipboard
+        map.on('contextmenu', (e) => {
+            const coordinates = e.lngLat;
+            const coordinateString = `[${coordinates.lng.toFixed(6)}, ${coordinates.lat.toFixed(6)}]`;
+
+            // Copy the coordinate string to clipboard
+            navigator.clipboard.writeText(coordinateString)
+                .then(() => {
+                    // Optionally, show a success message
+                    new mapboxgl.Popup()
+                        .setLngLat([coordinates.lng, coordinates.lat])
+                        .setHTML(`<strong>Coordinates copied to clipboard:</strong><br>${coordinateString}`)
+                        .addTo(map);
+                })
+                .catch((error) => {
+                    // Optionally, handle any errors
+                    console.error("Failed to copy coordinates to clipboard", error);
+                });
+        });
+        document.getElementById('reset-btn').addEventListener('click', resetMarkers);
+
+        map.on('load', () => {
+            getPredefinedRoute();
+        });
+    </script>
+</body>
+</html>
