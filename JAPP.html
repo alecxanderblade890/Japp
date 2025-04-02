@@ -24,7 +24,7 @@
         /* Ensure #map is properly positioned */
         #map {
             width: 100%;
-            height: 700px;
+            height: 100vh;
             position: relative;
             z-index: 900;
         }
@@ -92,22 +92,34 @@
                 ],
                 color: 'gray'
             },
+
             {
-                route_name: "Another Route Example",
+                route_name: "BO. Obrero - Iloilo City Proper Loop",
                 waypoints: [
-                    [122.548775, 10.699123],
-                    [122.543564, 10.697440],
-                    [122.543936, 10.696582],
-                    [122.547373, 10.692692],
-                    [122.552865, 10.692316],
-                    [122.564595, 10.695058],
-                    [122.568906, 10.696363],
-                    [122.569000, 10.692127]
+                    [122.587105, 10.698805],
+                    [122.583686, 10.697665],
+                    [122.571479, 10.703687],
+                    [122.569393, 10.707119],
+                    [122.569431, 10.701683],
+                    [122.569062, 10.700737],
+                    [122.570585, 10.693379],
+                    [122.567958, 10.691939],
+                    [122.568068, 10.701534],
+                    [122.571658, 10.702161],
+                    [122.587120, 10.698799]
                 ],
-                color: 'gray'
-            }
+                color: 'black'
+            },
+            {
+                route_name: "CPU - Iloilo City Proper Loop",
+                waypoints: [
+
+                ],
+                color: 'brown'
+            },
+           
         ];
-        mapboxgl.accessToken = 'ACCESS_TOKEN';
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYmxhZGU4OTAiLCJhIjoiY204czFwYjNjMHF4NjJtb21sYmFuYzhtbSJ9.tv4g_uT4Rqx0Lm4uzKBcog';
         const map = new mapboxgl.Map({
             container: 'map',
             style: 'mapbox://styles/mapbox/streets-v11',
@@ -129,7 +141,7 @@
                     .then(response => response.json())
                     .then(data => {
                         const routeGeometry = data.routes[0].geometry;
-                        predefinedRouteGeometry.push(routeGeometry); // Store the geometry
+                        predefinedRouteGeometry.push(routeGeometry);
 
                         const sourceId = `predefined-route-${index}`;
                         const layerId = `predefined-route-${index}`;
@@ -145,6 +157,12 @@
                             layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
                             paint: { 'line-color': route.color, 'line-width': 4 }
                         });
+
+                        // Add arrow markers and store them
+                        window[`arrowMarkers${index}`] = addArrowMarkers(routeGeometry.coordinates, route.color);
+
+                        // Hide the route and arrows IMMEDIATELY after they are created.
+                        hideRoute(index);
                     })
                     .catch(error => console.error(`Error fetching route ${index}:`, error));
             });
@@ -152,9 +170,10 @@
 
         function getUserRoute() {
             if (!startCoords || !endCoords) {
-                console.log("Start or end coordinates are missing."); // Debugging line
-                return; // Exit if either coordinate is missing
+                console.log("Start or end coordinates are missing.");
+                return;
             }
+
             const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${startCoords.join(',')};${endCoords.join(',')}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`;
 
             fetch(url)
@@ -162,17 +181,9 @@
                 .then(data => {
                     const route = data.routes[0].geometry;
 
-                    // Check if 'user-route' layer exists and remove it
-                    if (map.getLayer('user-route')) {
-                        map.removeLayer('user-route');
-                    }
+                    if (map.getLayer('user-route')) map.removeLayer('user-route');
+                    if (map.getSource('user-route')) map.removeSource('user-route');
 
-                    // Check if 'user-route' source exists and remove it
-                    if (map.getSource('user-route')) {
-                        map.removeSource('user-route');
-                    }
-
-                    // Add new source and layer
                     map.addSource('user-route', { type: 'geojson', data: { type: 'Feature', geometry: route } });
 
                     map.addLayer({
@@ -183,45 +194,89 @@
                         paint: { 'line-color': 'red', 'line-width': 4 }
                     });
 
-                    let startRoute = checkIntersection(startCoords);
-                    let endRoute = checkIntersection(endCoords);
-                
-                    if ((startRoute && endRoute) && (startRoute == endRoute)) {
-                        document.getElementById('available-routes').innerHTML = `Available routes to take: <br> ${startRoute}`;
-                        showRoute(predefinedRoutes.findIndex(route => route.route_name === startRoute));
-                    } else if (startRoute) {
+                    let startRoutes = checkIntersection(startCoords); // Get all routes at start point
+                    let endRoutes = checkIntersection(endCoords); // Get all routes at end point
+
+                    let availableRoutes = startRoutes.filter(route => endRoutes.includes(route)); // Find common routes
+
+                    if (availableRoutes.length > 0) {
+                        document.getElementById('available-routes').innerHTML = `Available routes to take:<br> <br> ->${availableRoutes.join("<br>->")}`;
+                        availableRoutes.forEach(routeName => {
+                            let index = predefinedRoutes.findIndex(route => route.route_name === routeName);
+                            if (index !== -1) showRoute(index);
+                        });
+                    } else {
                         document.getElementById('available-routes').innerHTML = `No available routes found`;
-                        // alert(`Start point is near or intersects the predefined route: ${startRoute}`);
-                    } else if (endRoute) {
-                        document.getElementById('available-routes').innerHTML = `No available routes found`;
-                        // alert(`End point is near or intersects the predefined route: ${endRoute}`);
                     }
                 })
                 .catch(error => console.error('Error fetching user route:', error));
-
         }
 
         function checkIntersection(point) {
-            if (!predefinedRouteGeometry || predefinedRouteGeometry.length === 0) return null;
+            if (!predefinedRouteGeometry || predefinedRouteGeometry.length === 0) return [];
 
             let pt = turf.point(point);
+            let intersectingRoutes = [];
 
             for (let i = 0; i < predefinedRouteGeometry.length; i++) {
                 let line = turf.lineString(predefinedRouteGeometry[i].coordinates);
                 let distance = turf.pointToLineDistance(pt, line, { units: 'kilometers' });
 
                 if (distance < proximityThreshold) {
-                    return predefinedRoutes[i].route_name; // Return the name of the route the point intersects with
+                    intersectingRoutes.push(predefinedRoutes[i].route_name); // Collect all intersecting routes
                 }
             }
 
-            return null; // No intersection found
+            return intersectingRoutes; // Return an array of routes
+        }
+
+        function addArrowMarkers(coordinates, color) {
+            const arrowInterval = 0.09;
+            let arrowMarkers = [];
+
+            for (let i = 0; i < coordinates.length - 1; i++) {
+                let start = turf.point(coordinates[i]);
+                let end = turf.point(coordinates[i + 1]);
+                let segmentDistance = turf.distance(start, end, { units: 'kilometers' });
+                let bearing = turf.bearing(start, end) - 90;
+                let mapboxBearing = bearing;
+
+                let steps = Math.floor(segmentDistance / arrowInterval);
+
+                for (let j = 0; j < steps; j++) {
+                    let fraction = (j * arrowInterval) / segmentDistance;
+                    let interpolatedPoint = turf.along(turf.lineString([coordinates[i], coordinates[i + 1]]), j * arrowInterval, { units: 'kilometers' });
+
+                    let marker = new mapboxgl.Marker({ element: createArrowElement(color) })
+                        .setLngLat(interpolatedPoint.geometry.coordinates)
+                        .setRotation(mapboxBearing)
+                        .addTo(map);
+
+                    arrowMarkers.push(marker);
+                }
+            }
+            return arrowMarkers; // Return the array of markers
+        }
+
+        function createArrowElement(color) {
+            const el = document.createElement('div');
+            el.className = 'arrow-marker';
+            el.style.backgroundImage = `url('arrow.png')`;
+            el.style.width = '40px';
+            el.style.height = '40px';
+            el.style.backgroundSize = 'cover';
+            el.style.transform = 'rotate(0deg)';
+            return el;
         }
 
         function showRoute(index) {
             const layerId = `predefined-route-${index}`;
             if (map.getLayer(layerId)) {
                 map.setLayoutProperty(layerId, 'visibility', 'visible');
+            }
+            // Show arrow markers
+            if (window[`arrowMarkers${index}`]) {
+                window[`arrowMarkers${index}`].forEach(marker => marker.addTo(map));
             }
         }
 
@@ -230,8 +285,17 @@
             if (map.getLayer(layerId)) {
                 map.setLayoutProperty(layerId, 'visibility', 'none');
             }
+            // Hide arrow markers
+            if (window[`arrowMarkers${index}`]) {
+                window[`arrowMarkers${index}`].forEach(marker => marker.remove());
+            }
         }
 
+        function clearPredefindRoutes() {
+            predefinedRoutes.forEach((route, index) => {
+                hideRoute(index);
+            });
+        }
         function resetMarkers() {
             if (startMarker) startMarker.remove();
             if (endMarker) endMarker.remove();
@@ -241,13 +305,6 @@
             startCoords = endCoords = null;
             document.getElementById('available-routes').innerHTML = `JAPP!`;
             clearPredefindRoutes();
-        }
-
-        function clearPredefindRoutes()
-        {
-            predefinedRoutes.forEach((route, index) => {
-                hideRoute(index);
-            });
         }
 
         map.on('click', (e) => {
@@ -277,34 +334,63 @@
                 getUserRoute();
             }
         });
-
-
+        map.on('load', () => {
+            getPredefinedRoute();
+            //hide arrows
+            predefinedRoutes.forEach((route, index) => {
+                hideRoute(index);
+            });
+        });
+        document.getElementById('reset-btn').addEventListener('click', resetMarkers);
 
 //=====================================DEBUGGING========================================
 
         //GetCoordinates function to copy coordinates to clipboard
+        // map.on('contextmenu', (e) => {
+        //     const coordinates = e.lngLat;
+        //     const coordinateString = `[${coordinates.lng.toFixed(6)}, ${coordinates.lat.toFixed(6)}]`;
+
+        //     // Copy the coordinate string to clipboard
+        //     navigator.clipboard.writeText(coordinateString)
+        //         .then(() => {
+        //             // Optionally, show a success message
+        //             new mapboxgl.Popup()
+        //                 .setLngLat([coordinates.lng, coordinates.lat])
+        //                 .setHTML(`<strong>Coordinates copied to clipboard:</strong><br>${coordinateString}`)
+        //                 .addTo(map);
+        //         })
+        //         .catch((error) => {
+        //             // Optionally, handle any errors
+        //             console.error("Failed to copy coordinates to clipboard", error);
+        //         });
+        // });
+        let savedText = ""; // Initialize savedText variable
         map.on('contextmenu', (e) => {
             const coordinates = e.lngLat;
             const coordinateString = `[${coordinates.lng.toFixed(6)}, ${coordinates.lat.toFixed(6)}]`;
 
-            // Copy the coordinate string to clipboard
+            // Copy to clipboard
             navigator.clipboard.writeText(coordinateString)
                 .then(() => {
-                    // Optionally, show a success message
                     new mapboxgl.Popup()
                         .setLngLat([coordinates.lng, coordinates.lat])
                         .setHTML(`<strong>Coordinates copied to clipboard:</strong><br>${coordinateString}`)
                         .addTo(map);
                 })
-                .catch((error) => {
-                    // Optionally, handle any errors
-                    console.error("Failed to copy coordinates to clipboard", error);
-                });
-        });
-        document.getElementById('reset-btn').addEventListener('click', resetMarkers);
+                .catch((error) => console.error("Failed to copy coordinates", error));
 
-        map.on('load', () => {
-            getPredefinedRoute();
+            // Append to text
+            savedText += coordinateString + "\n";
+
+            // Save as text file
+            const blob = new Blob([savedText], { type: "text/plain" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "coordinates.txt";
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         });
     </script>
 </body>
